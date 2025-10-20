@@ -10,8 +10,6 @@ from stt_transcriber import transcribe_folder
 
 LAST_TRANSCRIPTS = {}
 
-# ---------- Browse dialogs ----------
-
 def browse_source():
     folder = filedialog.askdirectory(title="Select Source Folder (Videos)")
     if folder:
@@ -24,7 +22,6 @@ def browse_destination():
         dst_entry.delete(0, tk.END)
         dst_entry.insert(0, folder)
 
-# ---------- Main process ----------
 
 def submit():
     src = src_entry.get().strip()
@@ -38,7 +35,7 @@ def submit():
 
     def run_pipeline():
         try:
-            # 1️⃣ Extract only audio files
+            #Extract only audio files
             outputs = extract_all_audios(Path(src), Path(dst))
             out_dir = Path(dst) / "audios"
 
@@ -53,7 +50,7 @@ def submit():
                 ))
                 return
 
-            # 2️⃣ Transcribe and store ONLY in memory (update status per file)
+            #Transcribe and store ONLY in memory (update status per file)
             from faster_whisper import WhisperModel
             model = WhisperModel("tiny", device="auto", compute_type="int8")
             transcripts = {}
@@ -68,11 +65,11 @@ def submit():
             LAST_TRANSCRIPTS.clear()
             LAST_TRANSCRIPTS.update(transcripts)
 
-            # 3️⃣ Completion message
+            # Completion message
             def done():
-                status_var.set("✅ Completed successfully!")
+                status_var.set(" Completed successfully!")
                 messagebox.showinfo(
-                    "Completed ✅",
+                    "Completed ",
                     f"Extracted {len(outputs)} audio file(s) to:\n{out_dir}\n\n"
                     f"Transcribed {len(transcripts)} file(s).\n\n"
                     "Transcripts stored in variable: LAST_TRANSCRIPTS"
@@ -86,7 +83,7 @@ def submit():
             print(traceback.format_exc(), file=sys.stderr)
 
             def on_err(msg=err_msg):
-                status_var.set("❌ Error encountered. See terminal for details.")
+                status_var.set(" Error encountered. See terminal for details.")
                 messagebox.showerror("Error", msg)
                 submit_btn.config(state="normal")
 
@@ -94,10 +91,8 @@ def submit():
 
     threading.Thread(target=run_pipeline, daemon=True).start()
 
-# ---------- UI Layout (Grid-based for visible Browse buttons) ----------
-
 root = tk.Tk()
-root.title("🎬 Video Transcript Generator")
+root.title("Video Transcript Generator")
 root.geometry("680x270")
 root.resizable(False, False)
 
