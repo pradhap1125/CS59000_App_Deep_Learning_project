@@ -1,3 +1,4 @@
+import subprocess
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from pathlib import Path
@@ -6,6 +7,8 @@ import sys
 import traceback
 import datetime
 from typing import List, Dict
+import os
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 # Your modules
 from extract_audio import extract_all_audios
@@ -65,6 +68,63 @@ def save_all_srts_with_timestamps(ts_map: Dict[str, List[dict]], output_dir: Pat
         written[audio_path_str] = str(srt_path)
     return written
 
+def normalizeTranscripts(transcripts: Dict[str, List[dict]]) -> Dict[str, List[dict]]:
+    """
+    Normalize the text in the transcripts using a pre-trained model.
+    """
+    from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+    import torch
+    import textwrap
+
+    model_name = "pradhap1125/t5-small-sentence-validator"
+    tokenizer = AutoTokenizer.from_pretrained(model_name,use_fast=True)
+    model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+    normalized_transcripts: Dict[str, List[dict]] = {}
+    for audio_path, segments in transcripts.items():
+        normalized_segments: List[dict] = []
+        for seg in segments:
+            raw_text = seg.get("text", "")
+            chunks = textwrap.wrap(raw_text, 400)
+            normalized_chunks = []
+            for ch in chunks:
+                input_text = "normalize: " + ch
+                inputs = tokenizer(input_text, return_tensors="pt", truncation=True)
+                with torch.no_grad():
+                    output_ids = model.generate(**inputs, max_length=256, num_beams=5)
+                normalized_chunk = tokenizer.decode(output_ids[0], skip_special_tokens=True)
+                normalized_chunks.append(normalized_chunk)
+            normalized_text = " ".join(normalized_chunks)
+            normalized_seg = {
+                "start": seg["start"],
+                "end": seg["end"],
+                "text": normalized_text
+            }
+            normalized_segments.append(normalized_seg)
+        normalized_transcripts[audio_path] = normalized_segments
+    return normalized_transcripts
+
+def embedTranscriptsToVideo(transcripts) -> None:
+
+    """
+    Embed the SRT subtitles into the video using ffmpeg.
+    """
+    for video_path,srt_path in transcripts.items():
+        video_path = Path(video_path)
+        srt_path = Path(srt_path)
+        output_path = video_path.parent/"videos_subtitled"/f"{video_path.stem}_with_subs{video_path.suffix}"
+        output_path.parent.mkdir(parents=True,exist_ok=True)
+        cmd = [
+            "ffmpeg",
+            "-i", str(video_path),
+            "-vf", f"subtitles={str(srt_path)}",
+            "-c:a", "copy",
+            str(output_path),
+        ]
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if proc.returncode != 0:
+            raise RuntimeError(f"ffmpeg failed to embed subtitles for {video_path.name}:\n{proc.stderr}")
+
+
 
 # -----------------------------
 # GUI callbacks
@@ -119,7 +179,7 @@ def submit():
 
             for idx, p in enumerate(outputs, start=1):
                 root.after(0, lambda i=idx, t=total: status_var.set(f"🗣️ Transcribing file {i} of {t}..."))
-                segments, _info = model.transcribe(str(p), beam_size=1)
+                segments, _info = model.transcribe(str(p.get("audio")), beam_size=1)
 
                 seg_list: List[dict] = []
                 for seg in segments:
@@ -129,16 +189,19 @@ def submit():
                         "end": float(seg.end),
                         "text": (seg.text or "").strip()
                     })
-                transcripts[str(p)] = seg_list
-
+                transcripts[str(p.get("video"))] = seg_list
+            normlized_transcripts = normalizeTranscripts(transcripts)
             # 3) Update global LAST_TRANSCRIPTS
             LAST_TRANSCRIPTS.clear()
-            LAST_TRANSCRIPTS.update(transcripts)
+            LAST_TRANSCRIPTS.update(normlized_transcripts)
 
             # 4) Write SRT files to transcripts/ in destination
             root.after(0, lambda: status_var.set("📝 Writing .srt files..."))
 
             written_map = save_all_srts_with_timestamps(LAST_TRANSCRIPTS, out_dir)
+
+            root.after(0, lambda: status_var.set("🎬 Embedding subtitles into videos..."))
+            embedTranscriptsToVideo(written_map)
 
             # 5) Completion message
             def done():
@@ -150,7 +213,7 @@ def submit():
                     f"SRT files written to:\n{out_dir}\n\n"
                     "Timestamped transcripts stored in variable: LAST_TRANSCRIPTS"
                 )
-                root.destroy()
+                submit_btn.config(state="normal")
 
             root.after(0, done)
 
@@ -164,8 +227,9 @@ def submit():
                 submit_btn.config(state="normal")
 
             root.after(0, on_err)
-
     threading.Thread(target=run_pipeline, daemon=True).start()
+
+
 
 
 # -----------------------------
@@ -204,4 +268,8 @@ status_var = tk.StringVar(value="Idle...")
 status_label = tk.Label(root, textvariable=status_var, font=("Arial", 10, "italic"), fg="gray")
 status_label.grid(row=4, column=0, columnspan=3, pady=(4, 10))
 
-root.mainloop()
+if __name__ == "__main__":
+    # on Windows also helps multiprocessing
+    import multiprocessing as mp
+    mp.freeze_support()
+    root.mainloop()
