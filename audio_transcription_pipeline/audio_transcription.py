@@ -111,8 +111,7 @@ def embedTranscriptsToVideo(transcripts) -> None:
     for video_path,srt_path in transcripts.items():
         video_path = Path(video_path)
         srt_path = Path(srt_path)
-        output_path = video_path.parent/"videos_subtitled"/f"{video_path.stem}_with_subs{video_path.suffix}"
-        output_path.parent.mkdir(parents=True,exist_ok=True)
+        output_path = video_path.parent/f"{video_path.stem}_with_subs{video_path.suffix}"
         cmd = [
             "ffmpeg",
             "-i", str(video_path),
