@@ -8,6 +8,8 @@ import traceback
 import datetime
 from typing import List, Dict
 import os
+import platform
+
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 # Your modules
@@ -103,15 +105,18 @@ def normalizeTranscripts(transcripts: Dict[str, List[dict]]) -> Dict[str, List[d
         normalized_transcripts[audio_path] = normalized_segments
     return normalized_transcripts
 
-def embedTranscriptsToVideo(transcripts) -> None:
+source_dir = os.path.dirname(os.path.abspath(__file__))
+os.environ["HF_HOME"] = os.path.join(source_dir, "hf_cache")
+is_windows = platform.system().lower().startswith('win')
 
+def embedTranscriptsToVideo(transcripts) -> None:
     """
     Embed the SRT subtitles into the video using ffmpeg.
     """
-    for video_path,srt_path in transcripts.items():
+    for video_path, srt_path in transcripts.items():
         video_path = Path(video_path)
         srt_path = Path(srt_path)
-        output_path = video_path.parent/f"{video_path.stem}_with_subs{video_path.suffix}"
+        output_path = video_path.parent / f"{video_path.stem}_with_subs{video_path.suffix}"
         cmd = [
             "ffmpeg",
             "-i", str(video_path),
@@ -119,7 +124,23 @@ def embedTranscriptsToVideo(transcripts) -> None:
             "-c:a", "copy",
             str(output_path),
         ]
-        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+        # START OF NEW LOGIC
+        fixed = []
+        for arg in cmd:
+            # Convert \ to /
+            arg = arg.replace('\\', '/')
+            # Handle subtitles filter for proper Windows syntax
+            if arg.startswith('subtitles=') and '.srt' in arg:
+                path = arg.split('=', 1)[1]
+                # Windows only: escape the drive letter colon
+                if is_windows and len(path) > 2 and path[1:3] == ':/':
+                    path = path[0] + '\\:' + path[2:]
+                arg = f"subtitles='{path}'"
+            fixed.append(arg)
+        proc = subprocess.run(fixed, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        # END OF NEW LOGIC
+
         if proc.returncode != 0:
             raise RuntimeError(f"ffmpeg failed to embed subtitles for {video_path.name}:\n{proc.stderr}")
 
