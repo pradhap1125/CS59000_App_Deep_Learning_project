@@ -1,1 +1,7 @@
 .DS_Store
+audio_transcription_pipeline/dist/
+audio_transcription_pipeline/build/
+*.exe
+*.pyz
+*.pkg
+__pycache__/
