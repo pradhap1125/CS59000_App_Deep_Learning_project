@@ -5,3 +5,4 @@ audio_transcription_pipeline/build/
 *.pyz
 *.pkg
 __pycache__/
+audio_transcription_pipeline/*.spec
