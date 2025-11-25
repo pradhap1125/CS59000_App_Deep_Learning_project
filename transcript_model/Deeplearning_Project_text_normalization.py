@@ -12,8 +12,9 @@ Original file is located at
 import re
 import random
 from datasets import load_dataset, Dataset, DatasetDict
-from transformers import T5Tokenizer
+from transformers import T5Tokenizer,Seq2SeqTrainer, Seq2SeqTrainingArguments, EarlyStoppingCallback
 import pandas as pd
+import itertools
 from typing import List, Dict, Optional
 import nltk
 from nltk.tokenize import sent_tokenize
@@ -162,33 +163,101 @@ def preprocess(examples):
 train_dataset = train_dataset.map(preprocess, batched=True)
 test_dataset  = test_dataset.map(preprocess, batched=True)
 
-
 data_collator = DataCollatorForSeq2Seq(tokenizer, model=model)
 
+# Adjust sample sizes based on available compute
+small_train = train_dataset.shuffle(seed=42).select(range(10000))
+small_val = test_dataset.shuffle(seed=42).select(range(1000))
 
-def compute_metrics(eval_pred):
-    predictions, labels = eval_pred
+# Define Hyperparameter Grid
+learning_rates = [5e-5, 1e-4, 3e-4]
+weight_decays = [0.01, 0.05]
+label_smooths = [0.0, 0.1]
 
-    # Decode
-    preds = tokenizer.batch_decode(predictions, skip_special_tokens=True)
-    labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
-    refs = tokenizer.batch_decode(labels, skip_special_tokens=True)
+results = []
 
-    # Exact string match accuracy
-    correct = sum(p.strip() == r.strip() for p, r in zip(preds, refs))
-    acc = correct / len(preds)
+# Run Each Combination
 
-    return {"accuracy": acc}
+for lr, wd, ls in itertools.product(learning_rates, weight_decays, label_smooths):
+    print(f"\n Training with lr={lr}, weight_decay={wd}, label_smoothing={ls}")
 
+    training_args = Seq2SeqTrainingArguments(
+        #output_dir=f"./t5_tuning/lr{lr}_wd{wd}_ls{ls}",
+        eval_strategy ="steps",
+       # save_strategy="epoch",
+       # save_total_limit=1,                  # Keep only last checkpoint
+        learning_rate=lr,
+        weight_decay=wd,
+        num_train_epochs=3,                  # Slightly higher for early stopping to kick in
+        per_device_train_batch_size=8,
+        per_device_eval_batch_size=8,
+        warmup_ratio=0.1,
+        logging_strategy="epoch",
+        predict_with_generate=False,         # Speed up evaluation
+        fp16=True,                           # Mixed precision
+        label_smoothing_factor=ls,
+        #load_best_model_at_end=True,
+        metric_for_best_model="eval_loss",
+        greater_is_better=False,
+        report_to="none",                    # Disable external logging (wandb/tensorboard)
+    )
+
+    # Define trainer with early stopping callback
+    trainer = Seq2SeqTrainer(
+        model=model,
+        args=training_args,
+        train_dataset=small_train,
+        eval_dataset=small_val,
+        tokenizer=tokenizer,
+        data_collator=data_collator,
+        callbacks=[EarlyStoppingCallback(early_stopping_patience=2)]  # stops after 2 evals without improvement
+    )
+
+    trainer.train()
+    eval_results = trainer.evaluate()
+    eval_loss = eval_results["eval_loss"]
+
+    print(f" Finished: eval_loss = {eval_loss:.4f}")
+    results.append((lr, wd, ls, eval_loss))
+
+#Identify Best Combination
+
+best = min(results, key=lambda x: x[3])
+print("\n Best Hyperparameter Combination:")
+print(f"Learning Rate: {best[0]}")
+print(f"Weight Decay:  {best[1]}")
+print(f"Label Smooth:  {best[2]}")
+print(f"Eval Loss:     {best[3]:.4f}")
+
+# def compute_metrics(eval_pred):
+#     predictions, labels = eval_pred
+
+#     # Decode
+#     preds = tokenizer.batch_decode(predictions, skip_special_tokens=True)
+#     labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
+#     refs = tokenizer.batch_decode(labels, skip_special_tokens=True)
+
+#     # Exact string match accuracy
+#     correct = sum(p.strip() == r.strip() for p, r in zip(preds, refs))
+#     acc = correct / len(preds)
+
+#     return {"accuracy": acc}
+
+# using the hypo parameters from the best perfroming model in above step
+Learning_Rate= 3e-4
+Weight_Decay=  0.01
+Label_Smooth=  0.0
 
 training_args = Seq2SeqTrainingArguments(
     output_dir="/content/drive/MyDrive/t5-text-normalization/",
-    #evaluation_strategy="epoch",
+    eval_strategy ="steps",
+    eval_steps=1000,
     save_strategy="epoch",
-    learning_rate=5e-5,
+    learning_rate=Learning_Rate,
     per_device_train_batch_size=8,
     per_device_eval_batch_size=8,
-    weight_decay=0.01,
+    label_smoothing_factor=Label_Smooth,
+    weight_decay=Weight_Decay,
     save_total_limit=2,
     num_train_epochs=3,
     predict_with_generate=True,
@@ -205,7 +274,7 @@ trainer = Seq2SeqTrainer(
     eval_dataset=test_dataset,
     tokenizer=tokenizer,
     data_collator=data_collator,
-    compute_metrics=compute_metrics
+   # compute_metrics=compute_metrics
 )
 
 trainer.train()
@@ -213,3 +282,33 @@ trainer.train()
 print("Evaluating on test set...")
 results = trainer.evaluate()
 print(results)
+
+import matplotlib.pyplot as plt
+import pandas as pd
+
+def plot_hf_training_logs(trainer):
+    # Convert log history to DataFrame
+    logs = pd.DataFrame(trainer.state.log_history)
+
+    # Filter only rows with loss values
+    train_logs = logs[logs["loss"].notnull()]
+    eval_logs = logs[logs["eval_loss"].notnull()]
+
+    # Extract values
+    train_loss = train_logs["loss"].values
+    eval_loss = eval_logs["eval_loss"].values
+    train_epochs = train_logs["epoch"].values
+    eval_epochs = eval_logs["epoch"].values
+
+    # Plot Training & Evaluation Loss
+    plt.figure(figsize=(8, 5))
+    plt.plot(train_epochs, train_loss, "bo-", label="Training Loss")
+    plt.plot(eval_epochs, eval_loss, "ro-", label="Evaluation Loss")
+    plt.title("Training and Evaluation Loss")
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
+plot_hf_training_logs(trainer)
