@@ -12,6 +12,8 @@ import platform
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
+ffmpeg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ffmpeg.exe")
+
 # Your modules
 from extract_audio import extract_all_audios
 # from stt_transcriber import transcribe_folder  # (unused; safe to remove if you want)
@@ -22,7 +24,6 @@ from extract_audio import extract_all_audios
 # After transcription, this becomes:
 # { "<audio_path>": [ {"start": float, "end": float, "text": str}, ... ], ... }
 LAST_TRANSCRIPTS: Dict[str, List[dict]] = {}
-
 
 # -----------------------------
 # Helpers for SRT writing
@@ -43,7 +44,6 @@ def _to_srt_time(seconds: float) -> str:
         hhmmss = "0:" + hhmmss
     return f"{hhmmss},{millis}"
 
-
 def save_srt_from_segments(segments: List[dict], srt_path: Path) -> None:
     """
     Write a list of segments [{"start": float, "end": float, "text": str}, ...] to an SRT file.
@@ -55,7 +55,6 @@ def save_srt_from_segments(segments: List[dict], srt_path: Path) -> None:
             end = _to_srt_time(seg["end"])
             text = (seg.get("text") or "").strip()
             f.write(f"{i}\n{start} --> {end}\n{text}\n\n")
-
 
 def save_all_srts_with_timestamps(ts_map: Dict[str, List[dict]], output_dir: Path) -> Dict[str, str]:
     """
@@ -79,7 +78,7 @@ def normalizeTranscripts(transcripts: Dict[str, List[dict]]) -> Dict[str, List[d
     import textwrap
 
     model_name = "pradhap1125/t5-small-sentence-validator"
-    tokenizer = AutoTokenizer.from_pretrained(model_name,use_fast=True)
+    tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
     model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
     normalized_transcripts: Dict[str, List[dict]] = {}
     for audio_path, segments in transcripts.items():
@@ -118,13 +117,12 @@ def embedTranscriptsToVideo(transcripts) -> None:
         srt_path = Path(srt_path)
         output_path = video_path.parent / f"{video_path.stem}_with_subs{video_path.suffix}"
         cmd = [
-            "ffmpeg",
+            ffmpeg_path,
             "-i", str(video_path),
             "-vf", f"subtitles={str(srt_path)}",
             "-c:a", "copy",
             str(output_path),
         ]
-
         # START OF NEW LOGIC
         fixed = []
         for arg in cmd:
@@ -138,13 +136,21 @@ def embedTranscriptsToVideo(transcripts) -> None:
                     path = path[0] + '\\:' + path[2:]
                 arg = f"subtitles='{path}'"
             fixed.append(arg)
-        proc = subprocess.run(fixed, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        # Suppress CMD window on Windows
+        startupinfo = None
+        if os.name == 'nt':
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        proc = subprocess.run(
+            fixed,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            startupinfo=startupinfo
+        )
         # END OF NEW LOGIC
-
         if proc.returncode != 0:
             raise RuntimeError(f"ffmpeg failed to embed subtitles for {video_path.name}:\n{proc.stderr}")
-
-
 
 # -----------------------------
 # GUI callbacks
@@ -155,13 +161,11 @@ def browse_source():
         src_entry.delete(0, tk.END)
         src_entry.insert(0, folder)
 
-
 def browse_destination():
     folder = filedialog.askdirectory(title="Select Destination Folder (Audios)")
     if folder:
         dst_entry.delete(0, tk.END)
         dst_entry.insert(0, folder)
-
 
 def submit():
     src = src_entry.get().strip()
@@ -203,7 +207,6 @@ def submit():
 
                 seg_list: List[dict] = []
                 for seg in segments:
-                    # seg.start/seg.end are floats; seg.text is a string
                     seg_list.append({
                         "start": float(seg.start),
                         "end": float(seg.end),
@@ -248,9 +251,6 @@ def submit():
 
             root.after(0, on_err)
     threading.Thread(target=run_pipeline, daemon=True).start()
-
-
-
 
 # -----------------------------
 # GUI setup
