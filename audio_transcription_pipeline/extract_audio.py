@@ -72,7 +72,7 @@ def extract_all_audios(
         out = extract_audio_to_wav(
             v, out_dir, sample_rate=sample_rate, channels=channels, overwrite=overwrite
         )
-        outputs.append(out)
+        outputs.append({"video": v, "audio": out})
     print(f"Done. Extracted {len(outputs)} audio file(s) to: {out_dir}")
     return outputs
 
