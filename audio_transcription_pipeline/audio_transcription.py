@@ -14,20 +14,15 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 ffmpeg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ffmpeg.exe")
 
-# Your modules
-from extract_audio import extract_all_audios
-# from stt_transcriber import transcribe_folder  # (unused; safe to remove if you want)
 
-# -----------------------------
-# Globals
-# -----------------------------
+from extract_audio import extract_all_audios
+# from stt_transcriber import transcribe_folder 
+
 # After transcription, this becomes:
 # { "<audio_path>": [ {"start": float, "end": float, "text": str}, ... ], ... }
 LAST_TRANSCRIPTS: Dict[str, List[dict]] = {}
 
-# -----------------------------
 # Helpers for SRT writing
-# -----------------------------
 def _to_srt_time(seconds: float) -> str:
     """
     Convert seconds (float) to SRT timestamp 'HH:MM:SS,mmm'
@@ -95,6 +90,8 @@ def normalizeTranscripts(transcripts: Dict[str, List[dict]]) -> Dict[str, List[d
                 normalized_chunk = tokenizer.decode(output_ids[0], skip_special_tokens=True)
                 normalized_chunks.append(normalized_chunk)
             normalized_text = " ".join(normalized_chunks)
+            if not normalized_text.strip():
+                normalized_text = raw_text
             normalized_seg = {
                 "start": seg["start"],
                 "end": seg["end"],
@@ -151,10 +148,8 @@ def embedTranscriptsToVideo(transcripts) -> None:
         # END OF NEW LOGIC
         if proc.returncode != 0:
             raise RuntimeError(f"ffmpeg failed to embed subtitles for {video_path.name}:\n{proc.stderr}")
-
-# -----------------------------
 # GUI callbacks
-# -----------------------------
+
 def browse_source():
     folder = filedialog.askdirectory(title="Select Source Folder (Videos)")
     if folder:
@@ -166,6 +161,70 @@ def browse_destination():
     if folder:
         dst_entry.delete(0, tk.END)
         dst_entry.insert(0, folder)
+
+def run_batch_transcription(src: Path, dst: Path, status_callback=None):
+    """
+    Runs the full audio extraction and transcription pipeline.
+    status_callback: function(str) -> None
+    """
+    def update_status(msg):
+        if status_callback:
+            status_callback(msg)
+
+    # 1) Extract only audio files
+    outputs = extract_all_audios(src, dst)
+    out_dir = dst / "transcripts"
+
+    if len(outputs) == 0:
+        return {"status": "no_videos", "outputs": []}
+
+    # 2) Transcribe with Faster-Whisper (keep timestamps)
+    from faster_whisper import WhisperModel
+    model = WhisperModel("small", device="auto", compute_type="int8")
+
+    transcripts: Dict[str, List[dict]] = {}
+    total = len(outputs)
+
+    for idx, p in enumerate(outputs, start=1):
+        update_status(f"🗣️ Transcribing file {i} of {t}..." if 'i' in locals() else f"🗣️ Transcribing file {idx} of {total}...")
+        segments, _info = model.transcribe(
+            str(p.get("audio")),
+            beam_size=5,
+            word_timestamps=True,
+            vad_filter=True,
+            vad_parameters=dict(
+                threshold=0.35,
+                min_silence_duration_ms=500,
+                speech_pad_ms=400
+            )
+        )
+
+        seg_list: List[dict] = []
+        for seg in segments:
+            # seg.start/seg.end are floats; seg.text is a string
+            seg_list.append({
+                "start": float(seg.start),
+                "end": float(seg.end),
+                "text": (seg.text or "").strip()
+            })
+        transcripts[str(p.get("video"))] = seg_list
+    normlized_transcripts = normalizeTranscripts(transcripts)
+    
+    # 3) Write SRT files to transcripts/ in destination
+    update_status(" Writing .srt files...")
+    written_map = save_all_srts_with_timestamps(normlized_transcripts, out_dir)
+
+    update_status(" Embedding subtitles into videos...")
+    embedTranscriptsToVideo(written_map)
+
+    return {
+        "status": "success",
+        "outputs": outputs,
+        "transcripts": normlized_transcripts,
+        "out_dir": out_dir
+    }
+
+
 
 def submit():
     src = src_entry.get().strip()
@@ -179,11 +238,13 @@ def submit():
 
     def run_pipeline():
         try:
-            # 1) Extract only audio files
-            outputs = extract_all_audios(Path(src), Path(dst))
-            out_dir = Path(dst) / "transcripts"
+            # Define a thread-safe callback
+            def on_status(msg):
+                root.after(0, lambda: status_var.set(msg))
 
-            if len(outputs) == 0:
+            result = run_batch_transcription(Path(src), Path(dst), status_callback=on_status)
+
+            if result["status"] == "no_videos":
                 root.after(0, lambda: (
                     messagebox.showwarning(
                         "No Videos Found",
@@ -215,29 +276,20 @@ def submit():
                 transcripts[str(p.get("video"))] = seg_list
             normlized_transcripts = normalizeTranscripts(transcripts)
             # 3) Update global LAST_TRANSCRIPTS
+
             LAST_TRANSCRIPTS.clear()
-            LAST_TRANSCRIPTS.update(normlized_transcripts)
+            LAST_TRANSCRIPTS.update(result["transcripts"])
 
-            # 4) Write SRT files to transcripts/ in destination
-            root.after(0, lambda: status_var.set("📝 Writing .srt files..."))
-
-            written_map = save_all_srts_with_timestamps(LAST_TRANSCRIPTS, out_dir)
-
-            root.after(0, lambda: status_var.set("🎬 Embedding subtitles into videos..."))
-            embedTranscriptsToVideo(written_map)
-
-            # 5) Completion message
             def done():
                 status_var.set("✅ Completed successfully!")
                 messagebox.showinfo(
                     "Completed",
-                    f"Extracted {len(outputs)} audio file(s).\n"
-                    f"Transcribed {len(transcripts)} file(s).\n\n"
-                    f"SRT files written to:\n{out_dir}\n\n"
+                    f"Extracted {len(result['outputs'])} audio file(s).\n"
+                    f"Transcribed {len(result['transcripts'])} file(s).\n\n"
+                    f"SRT files written to:\n{result['out_dir']}\n\n"
                     "Timestamped transcripts stored in variable: LAST_TRANSCRIPTS"
                 )
                 submit_btn.config(state="normal")
-
             root.after(0, done)
 
         except Exception as e:
@@ -248,13 +300,11 @@ def submit():
                 status_var.set("❌ Error encountered. See terminal for details.")
                 messagebox.showerror("Error", msg)
                 submit_btn.config(state="normal")
-
             root.after(0, on_err)
+
     threading.Thread(target=run_pipeline, daemon=True).start()
 
-# -----------------------------
-# GUI setup
-# -----------------------------
+
 root = tk.Tk()
 root.title("Video Transcript Generator")
 root.geometry("680x270")
