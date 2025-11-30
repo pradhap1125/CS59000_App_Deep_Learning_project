@@ -12,21 +12,17 @@ import platform
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-# Your modules
-from extract_audio import extract_all_audios
-# from stt_transcriber import transcribe_folder  # (unused; safe to remove if you want)
+ffmpeg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ffmpeg.exe")
 
-# -----------------------------
-# Globals
-# -----------------------------
+
+from extract_audio import extract_all_audios
+# from stt_transcriber import transcribe_folder 
+
 # After transcription, this becomes:
 # { "<audio_path>": [ {"start": float, "end": float, "text": str}, ... ], ... }
 LAST_TRANSCRIPTS: Dict[str, List[dict]] = {}
 
-
-# -----------------------------
 # Helpers for SRT writing
-# -----------------------------
 def _to_srt_time(seconds: float) -> str:
     """
     Convert seconds (float) to SRT timestamp 'HH:MM:SS,mmm'
@@ -43,7 +39,6 @@ def _to_srt_time(seconds: float) -> str:
         hhmmss = "0:" + hhmmss
     return f"{hhmmss},{millis}"
 
-
 def save_srt_from_segments(segments: List[dict], srt_path: Path) -> None:
     """
     Write a list of segments [{"start": float, "end": float, "text": str}, ...] to an SRT file.
@@ -55,7 +50,6 @@ def save_srt_from_segments(segments: List[dict], srt_path: Path) -> None:
             end = _to_srt_time(seg["end"])
             text = (seg.get("text") or "").strip()
             f.write(f"{i}\n{start} --> {end}\n{text}\n\n")
-
 
 def save_all_srts_with_timestamps(ts_map: Dict[str, List[dict]], output_dir: Path) -> Dict[str, str]:
     """
@@ -79,7 +73,7 @@ def normalizeTranscripts(transcripts: Dict[str, List[dict]]) -> Dict[str, List[d
     import textwrap
 
     model_name = "pradhap1125/t5-small-sentence-validator"
-    tokenizer = AutoTokenizer.from_pretrained(model_name,use_fast=True)
+    tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
     model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
     normalized_transcripts: Dict[str, List[dict]] = {}
     for audio_path, segments in transcripts.items():
@@ -120,13 +114,12 @@ def embedTranscriptsToVideo(transcripts) -> None:
         srt_path = Path(srt_path)
         output_path = video_path.parent / f"{video_path.stem}_with_subs{video_path.suffix}"
         cmd = [
-            "ffmpeg",
+            ffmpeg_path,
             "-i", str(video_path),
             "-vf", f"subtitles={str(srt_path)}",
             "-c:a", "copy",
             str(output_path),
         ]
-
         # START OF NEW LOGIC
         fixed = []
         for arg in cmd:
@@ -140,30 +133,34 @@ def embedTranscriptsToVideo(transcripts) -> None:
                     path = path[0] + '\\:' + path[2:]
                 arg = f"subtitles='{path}'"
             fixed.append(arg)
-        proc = subprocess.run(fixed, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        # Suppress CMD window on Windows
+        startupinfo = None
+        if os.name == 'nt':
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        proc = subprocess.run(
+            fixed,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            startupinfo=startupinfo
+        )
         # END OF NEW LOGIC
-
         if proc.returncode != 0:
             raise RuntimeError(f"ffmpeg failed to embed subtitles for {video_path.name}:\n{proc.stderr}")
-
-
-
-# -----------------------------
 # GUI callbacks
-# -----------------------------
+
 def browse_source():
     folder = filedialog.askdirectory(title="Select Source Folder (Videos)")
     if folder:
         src_entry.delete(0, tk.END)
         src_entry.insert(0, folder)
 
-
 def browse_destination():
     folder = filedialog.askdirectory(title="Select Destination Folder (Audios)")
     if folder:
         dst_entry.delete(0, tk.END)
         dst_entry.insert(0, folder)
-
 
 def run_batch_transcription(src: Path, dst: Path, status_callback=None):
     """
@@ -214,10 +211,10 @@ def run_batch_transcription(src: Path, dst: Path, status_callback=None):
     normlized_transcripts = normalizeTranscripts(transcripts)
     
     # 3) Write SRT files to transcripts/ in destination
-    update_status("📝 Writing .srt files...")
+    update_status(" Writing .srt files...")
     written_map = save_all_srts_with_timestamps(normlized_transcripts, out_dir)
 
-    update_status("🎬 Embedding subtitles into videos...")
+    update_status(" Embedding subtitles into videos...")
     embedTranscriptsToVideo(written_map)
 
     return {
@@ -226,6 +223,8 @@ def run_batch_transcription(src: Path, dst: Path, status_callback=None):
         "transcripts": normlized_transcripts,
         "out_dir": out_dir
     }
+
+
 
 def submit():
     src = src_entry.get().strip()
@@ -256,7 +255,28 @@ def submit():
                 ))
                 return
 
-            # Update global
+            # 2) Transcribe with Faster-Whisper (keep timestamps)
+            from faster_whisper import WhisperModel
+            model = WhisperModel("tiny", device="auto", compute_type="int8")
+
+            transcripts: Dict[str, List[dict]] = {}
+            total = len(outputs)
+
+            for idx, p in enumerate(outputs, start=1):
+                root.after(0, lambda i=idx, t=total: status_var.set(f"🗣️ Transcribing file {i} of {t}..."))
+                segments, _info = model.transcribe(str(p.get("audio")), beam_size=1)
+
+                seg_list: List[dict] = []
+                for seg in segments:
+                    seg_list.append({
+                        "start": float(seg.start),
+                        "end": float(seg.end),
+                        "text": (seg.text or "").strip()
+                    })
+                transcripts[str(p.get("video"))] = seg_list
+            normlized_transcripts = normalizeTranscripts(transcripts)
+            # 3) Update global LAST_TRANSCRIPTS
+
             LAST_TRANSCRIPTS.clear()
             LAST_TRANSCRIPTS.update(result["transcripts"])
 
@@ -285,11 +305,6 @@ def submit():
     threading.Thread(target=run_pipeline, daemon=True).start()
 
 
-
-
-# -----------------------------
-# GUI setup
-# -----------------------------
 root = tk.Tk()
 root.title("Video Transcript Generator")
 root.geometry("680x270")
