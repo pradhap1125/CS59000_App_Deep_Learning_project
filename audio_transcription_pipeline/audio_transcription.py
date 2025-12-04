@@ -12,7 +12,7 @@ import platform
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-ffmpeg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ffmpeg.exe")
+
 
 
 from extract_audio import extract_all_audios
@@ -105,16 +105,41 @@ source_dir = os.path.dirname(os.path.abspath(__file__))
 os.environ["HF_HOME"] = os.path.join(source_dir, "hf_cache")
 is_windows = platform.system().lower().startswith('win')
 
+def get_ffmpeg_path():
+    """
+    Returns the path to the ffmpeg binary.
+    If running in a PyInstaller bundle, returns the bundled path.
+    Otherwise, returns 'ffmpeg' (expects it in PATH) or the local ./ffmpeg if present.
+    """
+    if getattr(sys, 'frozen', False):
+        # Running in a PyInstaller bundle
+        base_path = sys._MEIPASS
+        ffmpeg_path = os.path.join(base_path, 'ffmpeg')
+        if is_windows:
+            ffmpeg_path += ".exe"
+        return ffmpeg_path
+    else:
+        # Running as a script
+        # Check if ./ffmpeg exists locally (dev mode)
+        local_ffmpeg = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ffmpeg')
+        if is_windows:
+            local_ffmpeg += ".exe"
+        if os.path.exists(local_ffmpeg):
+            return local_ffmpeg
+        return "ffmpeg"
+
 def embedTranscriptsToVideo(transcripts) -> None:
     """
     Embed the SRT subtitles into the video using ffmpeg.
     """
+    ffmpeg_exe = get_ffmpeg_path()
+    
     for video_path, srt_path in transcripts.items():
         video_path = Path(video_path)
         srt_path = Path(srt_path)
         output_path = video_path.parent / f"{video_path.stem}_with_subs{video_path.suffix}"
         cmd = [
-            ffmpeg_path,
+            ffmpeg_exe,
             "-i", str(video_path),
             "-vf", f"subtitles={str(srt_path)}",
             "-c:a", "copy",
@@ -138,16 +163,19 @@ def embedTranscriptsToVideo(transcripts) -> None:
         if os.name == 'nt':
             startupinfo = subprocess.STARTUPINFO()
             startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        proc = subprocess.run(
-            fixed,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            startupinfo=startupinfo
-        )
-        # END OF NEW LOGIC
-        if proc.returncode != 0:
-            raise RuntimeError(f"ffmpeg failed to embed subtitles for {video_path.name}:\n{proc.stderr}")
+        
+        try:
+            proc = subprocess.run(
+                fixed, 
+                stdout=subprocess.PIPE, 
+                stderr=subprocess.PIPE, 
+                text=True,
+                startupinfo=startupinfo
+            )
+            if proc.returncode != 0:
+                raise RuntimeError(f"ffmpeg failed to embed subtitles for {video_path.name}:\n{proc.stderr}")
+        except FileNotFoundError:
+             raise RuntimeError(f"ffmpeg binary not found at: {ffmpeg_exe}")
 # GUI callbacks
 
 def browse_source():
@@ -305,41 +333,49 @@ def submit():
     threading.Thread(target=run_pipeline, daemon=True).start()
 
 
-root = tk.Tk()
-root.title("Video Transcript Generator")
-root.geometry("680x270")
-root.resizable(False, False)
+def main():
+    global root, src_entry, dst_entry, submit_btn, status_var
+    
+    # -----------------------------
+    # GUI setup
+    # -----------------------------
+    root = tk.Tk()
+    root.title("Video Transcript Generator")
+    root.geometry("680x270")
+    root.resizable(False, False)
 
-heading = tk.Label(root, text="Video Transcript Generator", font=("Arial", 16, "bold"))
-heading.grid(row=0, column=0, columnspan=3, pady=(12, 8))
+    heading = tk.Label(root, text="Video Transcript Generator", font=("Arial", 16, "bold"))
+    heading.grid(row=0, column=0, columnspan=3, pady=(12, 8))
 
-root.grid_columnconfigure(1, weight=1)
+    root.grid_columnconfigure(1, weight=1)
 
-# Row 1 - Source
-lbl_src = tk.Label(root, text="Source Folder (Videos):", font=("Arial", 11))
-lbl_src.grid(row=1, column=0, sticky="w", padx=(20, 8), pady=(8, 4))
-src_entry = tk.Entry(root, width=60)
-src_entry.grid(row=1, column=1, sticky="ew", padx=(0, 8), pady=(8, 4))
-tk.Button(root, text="Browse", width=10, command=browse_source).grid(row=1, column=2, sticky="e", padx=(0, 20), pady=(8, 4))
+    # Row 1 - Source
+    lbl_src = tk.Label(root, text="Source Folder (Videos):", font=("Arial", 11))
+    lbl_src.grid(row=1, column=0, sticky="w", padx=(20, 8), pady=(8, 4))
+    src_entry = tk.Entry(root, width=60)
+    src_entry.grid(row=1, column=1, sticky="ew", padx=(0, 8), pady=(8, 4))
+    tk.Button(root, text="Browse", width=10, command=browse_source).grid(row=1, column=2, sticky="e", padx=(0, 20), pady=(8, 4))
 
-# Row 2 - Destination
-lbl_dst = tk.Label(root, text="Destination Folder (Audios):", font=("Arial", 11))
-lbl_dst.grid(row=2, column=0, sticky="w", padx=(20, 8), pady=(4, 8))
-dst_entry = tk.Entry(root, width=60)
-dst_entry.grid(row=2, column=1, sticky="ew", padx=(0, 8), pady=(4, 8))
-tk.Button(root, text="Browse", width=10, command=browse_destination).grid(row=2, column=2, sticky="e", padx=(0, 20), pady=(4, 8))
+    # Row 2 - Destination
+    lbl_dst = tk.Label(root, text="Destination Folder (Audios):", font=("Arial", 11))
+    lbl_dst.grid(row=2, column=0, sticky="w", padx=(20, 8), pady=(4, 8))
+    dst_entry = tk.Entry(root, width=60)
+    dst_entry.grid(row=2, column=1, sticky="ew", padx=(0, 8), pady=(4, 8))
+    tk.Button(root, text="Browse", width=10, command=browse_destination).grid(row=2, column=2, sticky="e", padx=(0, 20), pady=(4, 8))
 
-# Row 3 - Start button
-submit_btn = tk.Button(root, text="Start Process", width=18, font=("Arial", 12, "bold"), command=submit)
-submit_btn.grid(row=3, column=0, columnspan=3, pady=(6, 10))
+    # Row 3 - Start button
+    submit_btn = tk.Button(root, text="Start Process", width=18, font=("Arial", 12, "bold"), command=submit)
+    submit_btn.grid(row=3, column=0, columnspan=3, pady=(6, 10))
 
-# Row 4 - Status label
-status_var = tk.StringVar(value="Idle...")
-status_label = tk.Label(root, textvariable=status_var, font=("Arial", 10, "italic"), fg="gray")
-status_label.grid(row=4, column=0, columnspan=3, pady=(4, 10))
+    # Row 4 - Status label
+    status_var = tk.StringVar(value="Idle...")
+    status_label = tk.Label(root, textvariable=status_var, font=("Arial", 10, "italic"), fg="gray")
+    status_label.grid(row=4, column=0, columnspan=3, pady=(4, 10))
 
-if __name__ == "__main__":
     # on Windows also helps multiprocessing
     import multiprocessing as mp
     mp.freeze_support()
     root.mainloop()
+
+if __name__ == "__main__":
+    main()
