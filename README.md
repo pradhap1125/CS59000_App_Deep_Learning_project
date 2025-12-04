@@ -25,6 +25,7 @@ If you get a permission denied error while running the script, run:
 
 ```bash
 chmod +x install_and_run.sh
+
 bash install_and_run.sh
 ```
 
