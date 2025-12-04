@@ -1,4 +1,28 @@
+# Python venvs
+venv/
+ven311/
+.venv/
+
+# Build / packaging output
+build/
+dist/
+dmg_tmp/
+*.dmg
+*.spec
+*.app
+
+# Python cache
+__pycache__/
+*.pyc
+
+# macOS junk
 .DS_Store
+
+
+# Big data / models (if you don't want them in git)
+outputs/
+transcript_model/
+
 audio_transcription_pipeline/dist/
 audio_transcription_pipeline/build/
 *.exe
@@ -6,3 +30,4 @@ audio_transcription_pipeline/build/
 *.pkg
 __pycache__/
 audio_transcription_pipeline/*.spec
+
