@@ -28,5 +28,17 @@ chmod +x install_and_run.sh
 
 bash install_and_run.sh
 ```
+## 🪟 Windows Installation
 
+### Folder: **WindowsInstallationFiles**
+
+### Files
+- `audio_transcription_app-1.0.0-py3-none-any.whl`
+- `setup.bat` 
+- `run.bat` 
+
+### How to Run
+1. Open **WindowsInstallationFiles**.  
+2. **Run `setup.bat` as Administrator**.  
+3. After setup, **double-click `run.bat`** to start the app.
 
