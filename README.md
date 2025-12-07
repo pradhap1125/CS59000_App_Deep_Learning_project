@@ -28,5 +28,50 @@ chmod +x install_and_run.sh
 
 bash install_and_run.sh
 ```
+# 📦 Windows Installer Package for the Application
+
+This repository includes a simple installation package designed specifically for **Windows users**. The downloadable ZIP file contains all necessary components to install and run the application with minimal setup. Once the ZIP is downloaded and extracted, you will find two files: a Python wheel file (`.whl`) and two batch scripts (`setup.bat` and `run.bat`). The batch scripts install all required dependencies and launch the application automatically, eliminating the need for users to manually configure their Python environment.
+
+---
+
+## 📁 What's Included in the ZIP?
+
+After unzipping the package, you will see:
+- `audio_transcription-0.1.0-py3-none-any.whl` - The packaged application
+- `setup.bat` - Installation script
+- `run.bat` - Application launcher
+
+The `.whl` file is the packaged application ready for installation, while `setup.bat` is responsible for installing the wheel and fetching all required Python libraries. The `run.bat` script launches the application after setup is complete.
+
+---
+
+## ⚙️ How to Install & Run (Windows Only)
+
+### 1️⃣ Download the ZIP file
+Download `WindowsInstallationFiles.zip` from the `WindowsInstallationFiles` folder repository.
+
+### 2️⃣ Unzip the package
+Extract the file to a location of your choice (e.g., `Downloads` or `Desktop`).
+
+### 3️⃣ Run Setup (One-Time Only)
+
+> **⚠️ IMPORTANT:** Run as Administrator
+
+1. **Right-click** on `setup.bat`
+2. Select **"Run as administrator"**
+3. Click **"Yes"** when prompted by User Account Control (UAC)
+
+Wait for the message: **"Press any key to exit."**
+
+### 4️⃣ Launch the Application
+
+> **⚠️ Run as Administrator**
+
+1. **Right-click** on `run.bat`
+2. Select **"Run as administrator"**
+
+The application GUI will launch automatically. 🚀
+
+---
 
 
