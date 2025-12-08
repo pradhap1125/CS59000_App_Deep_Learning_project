@@ -282,27 +282,7 @@ def submit():
                     status_var.set("⚠️ No videos found.")
                 ))
                 return
-
-            # 2) Transcribe with Faster-Whisper (keep timestamps)
-            from faster_whisper import WhisperModel
-            model = WhisperModel("tiny", device="auto", compute_type="int8")
-
-            transcripts: Dict[str, List[dict]] = {}
-            total = len(outputs)
-
-            for idx, p in enumerate(outputs, start=1):
-                root.after(0, lambda i=idx, t=total: status_var.set(f"🗣️ Transcribing file {i} of {t}..."))
-                segments, _info = model.transcribe(str(p.get("audio")), beam_size=1)
-
-                seg_list: List[dict] = []
-                for seg in segments:
-                    seg_list.append({
-                        "start": float(seg.start),
-                        "end": float(seg.end),
-                        "text": (seg.text or "").strip()
-                    })
-                transcripts[str(p.get("video"))] = seg_list
-            normlized_transcripts = normalizeTranscripts(transcripts)
+            
             # 3) Update global LAST_TRANSCRIPTS
 
             LAST_TRANSCRIPTS.clear()
@@ -316,6 +296,7 @@ def submit():
                     f"Transcribed {len(result['transcripts'])} file(s).\n\n"
                     f"SRT files written to:\n{result['out_dir']}\n\n"
                     "Timestamped transcripts stored in variable: LAST_TRANSCRIPTS"
+                    f"Videos with subtitles embedded:\n{result['out_dir']}\n\n"
                 )
                 submit_btn.config(state="normal")
             root.after(0, done)
@@ -376,6 +357,6 @@ def main():
     import multiprocessing as mp
     mp.freeze_support()
     root.mainloop()
-
+ 
 if __name__ == "__main__":
     main()
