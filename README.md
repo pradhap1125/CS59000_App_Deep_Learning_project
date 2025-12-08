@@ -1,8 +1,16 @@
 # CS59000_App_Deep_Learning_project
 
+
 # 📦 macOS Installer Package for the Application
 
-This repository includes a simple installation package designed specifically for macOS users. The downloadable ZIP file contains all necessary components to install and run the application with minimal setup. Once the ZIP is downloaded and extracted, you will find two files: a Python wheel file (`.whl`) and a shell script (`install_and_run.sh`). The shell script installs all required dependencies and launches the application automatically, eliminating the need for users to manually configure their Python environment.
+This repository provides a native macOS .dmg installer for easy, one-click installation of the application without requiring any manual Python setup.
+
+🔗 Download macOS DMG Installer
+
+👉 https://drive.google.com/file/d/1c1qR9CPVbZF_GmTOthmB_vvPsow55hvD/view?usp=sharing
+
+
+This repository also includes a simple installation package designed specifically for macOS users. The downloadable ZIP file contains all necessary components to install and run the application with minimal setup. Once the ZIP is downloaded and extracted, you will find two files: a Python wheel file (`.whl`) and a shell script (`install_and_run.sh`). The shell script installs all required dependencies and launches the application automatically, eliminating the need for users to manually configure their Python environment.
 
 ## 📁 What’s Included in the ZIP?
 
