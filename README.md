@@ -1,4 +1,100 @@
-# CS59000_App_Deep_Learning_project
+# Video Transcript Generator
+
+An end-to-end **desktop application** that automatically generates **clean, accurate, and accessible transcripts** for videos using deep learning. Built as part of **CS 59000 / CS 59300 – Applications of Deep Learning**.
+
+This system combines **state-of-the-art speech recognition** with a **custom-trained NLP model** to produce ready-to-use subtitles without manual cleanup.
+
+---
+
+##  Key Features
+
+*  **Automatic Speech-to-Text** using Faster-Whisper (4× faster than Whisper)
+*  **Custom T5-based Text Cleanup Model** for punctuation, casing, and spacing
+*  **Timestamped Subtitles** (.srt)
+*  **Cross-platform Desktop Support** (Windows & macOS)
+*  **Privacy-preserving**: videos are processed locally
+*  **Accessibility-focused**: suitable for hearing-impaired and international students
+
+---
+
+
+##  System Architecture
+
+```
+Video Input
+   ↓
+Audio Extraction (FFmpeg)
+   ↓
+Speech-to-Text (Faster-Whisper)
+   ↓
+Text Cleanup (Custom T5 Model)
+   ↓
+Subtitle Generation (.srt) + Captioned Video
+```
+
+---
+
+##  Pipeline Details
+
+### 1. Video Collection
+
+* User provides input and output paths
+* Basic preprocessing and validation
+
+### 2. Audio Extraction
+
+* Uses **FFmpeg** to convert video to WAV format
+
+### 3. Speech-to-Text
+
+* **Faster-Whisper** with optimized parameters:
+
+  * Beam size: 5
+  * VAD: Silero-VAD
+  * VAD threshold: 0.35
+  * Minimum silence duration: 500 ms
+
+### 4. Text Cleanup (Core Innovation)
+
+* Custom **T5-small** model
+* Trained on **100K sentence pairs**
+* Fixes:
+
+  * Missing punctuation
+  * Incorrect casing
+  * Spacing issues
+  * Minor grammatical errors
+ Grant microphone / file permissions if prompted
+
+---
+
+##  Requirements (for Development)
+
+* Python 3.9+
+* PyTorch
+* Faster-Whisper
+* HuggingFace Transformers
+* FFmpeg
+
+Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+---
+
+## 👥 Team
+
+* **Pradhap Karthick**
+* **Dheeraj Kandikattu**
+* **Isha Pawar**
+* **Dakshesh Gandhe**
+
+**Faculty Sponsor:** Dr. Zesheng Chen
+
+---
+
 
 
 # 📦 macOS Installer Package for the Application
